@@ -19,25 +19,23 @@ def resolve (f, file):
         f += '.js'
     return f
 
-def substitute (text, past, new):
+def substitute (next, past, text):
     i = len(past)
-    j = len(new)
+    j = len(next)
     a = text.find(past)
     while a != -1:
-        if len(text) < a + i + 1:
-            break
-        elif text[a + i] in base64 or (a != 0 and text[a - 1] in base64 + '"\'.'):
+        if text[a + i] in base64 or (a != 0 and text[a - 1] in base64 + '"\'.'):
             a = text.find(past, a + i)
             continue
-        text = text[:a] + new + text[a + i:]
+        text = text[:a] + next + text[a + i:]
         a = text.find(past, a + j)
     return text
 
 def parse (file, modules, texts):
-    f = open(file, 'r')
-    if not f.closed:
-        text = f.read()
-    else:
+    try:
+        with open(file, 'r') as f:
+            text = f.read()
+    except:
         texts[file] = ''
         return
     lines = text.split('\n')
@@ -108,7 +106,6 @@ def parse (file, modules, texts):
             files[f] += names
         i = text.find('import ')
     mods = []
-    modules[file] = []
     for f in order:
         if f not in texts:
             mods.append(f)
@@ -164,7 +161,7 @@ def parse (file, modules, texts):
         path = f[:-3]
         path = ''.join([i if i in base64 else '_' for i in path])
         for name in files[f]:
-            text = substitute(text, name, name + '_' + path)
+            text = substitute(name + '_' + path, name, text)
     lines = text.split('\n')
     text = ''
     for line in lines:
@@ -180,7 +177,7 @@ def parse (file, modules, texts):
             text += line + '\n'
     texts[file] = text
 
-def build (file='a/a.js', output='a/y.js'):
+def build (file, output):
     imported = []
     imports = [file]
     modules = {}
@@ -191,7 +188,8 @@ def build (file='a/a.js', output='a/y.js'):
             imports.pop(0)
         else:
             parse(file, modules, texts)
-            imports = modules[file] + imports
+            if file in modules:
+                imports = modules[file] + imports
             if file in texts:
                 imported.append(file)
     text = ''
@@ -200,4 +198,4 @@ def build (file='a/a.js', output='a/y.js'):
     with open(output, 'w') as f:
         f.write(text)
 
-build(sys.argv[1], sys.argv[2])
+build(sys.argv[1] if len(sys.argv) > 1 else 'a/a.js', sys.argv[2] if len(sys.argv) > 2 else 'a/y.js')
