@@ -19,16 +19,16 @@ def resolve (f, file):
         f += '.js'
     return f
 
-def substitute (next, past, text):
-    i = len(past)
+def substitute (match, next, text):
+    a = text.find(match)
+    i = len(match)
     j = len(next)
-    a = text.find(past)
     while a != -1:
         if text[a + i] in base64 or (a != 0 and text[a - 1] in base64 + '"\'.'):
-            a = text.find(past, a + i)
-            continue
-        text = text[:a] + next + text[a + i:]
-        a = text.find(past, a + j)
+            a = text.find(match, a + i)
+        else:
+            text = text[:a] + next + text[a + i:]
+            a = text.find(match, a + j)
     return text
 
 def parse (file, modules, texts):
@@ -62,7 +62,8 @@ def parse (file, modules, texts):
         line = line.rstrip()
         if line:
             text += line + '\n'
-    files = {file: []}
+    defaults = {}
+    exports = {file: {}}
     order = []
     texta = text
     i = text.find('import ')
@@ -76,21 +77,38 @@ def parse (file, modules, texts):
         i += 6
         while text[i] == ' ':
             i += 1
+        defaulted = ''
+        names = {}
         text = text[i:]
         i = text.find('from')
         j = text.find('"')
         k = text.find("'")
-        names = []
         if i != -1 and (i < j or j == -1) and (i < k or k == -1):
-            while i < len(text):
+            length = len(text)
+            while i < length:
                 j = text[i - 1]
                 k = text[i + 4]
                 if (j == ' ' or j == '}') and (k == ' ' or k == '"' or k == "'"):
                     break
                 i += 4
                 i = text[i:].find('from')
-            names = text[:i].replace(',', ' ').replace('{', ' ').replace('}', ' ').split(' ')
-            names = [name for name in names if name != '']
+            variables = text[:i]
+            j = variables.find('{')
+            if j != -1:
+                split = variables[j + 1:variables.find('}')].split(',')
+                variables = variables[:j]
+                for name in split:
+                    name = name.lstrip().rstrip()
+                    j = name.find(' as ')
+                    if j != -1:
+                        names[name[:j]] = name[j + 4:]
+                    elif name:
+                        names[name] = name
+            name = variables[:variables.find(',')]
+            name = name.lstrip().rstrip()
+            if name:
+                defaulted = name
+                names[name] = name
             i += 5
             while text[i] == ' ':
                 i += 1
@@ -101,73 +119,90 @@ def parse (file, modules, texts):
             text = text[i + 1:]
             f = resolve(text[:text.find(f)], file)
             if f not in order:
-                files[f] = []
+                exports[f] = {}
                 order.append(f)
-            files[f] += names
+            if defaulted:
+                defaults[f] = defaulted
+            for name in names:
+                exports[f][name] = names[name]
         i = text.find('import ')
+    dependencies = False
     mods = []
     for f in order:
         if f not in texts:
             mods.append(f)
             if f not in modules:
-                modules[file] = mods
-                return
+                dependencies = True
+    if dependencies:
+        modules[file] = mods
+        return
     declares = ['async', 'class', 'const', 'default', 'function', 'let', 'var']
     defines = ['\n', ' ', '(', ',', '.', '[']
     text = texta
     i = text.find('export ')
     while i != -1:
         text = text[i + 7:]
+        if text.find('default ') == 0:
+            i = text.find('export ')
+            continue
         for name in declares:
             i = text.find(name)
             if i != -1 and i < 3:
                 text = text[i + len(name):]
-        names = ''
         i = text.find('\n')
         if i != -1:
-            names = text[:i]
-        i = 0
-        while names[i] == ' ':
-            i += 1
-        split = []
-        if names[i] == '{':
-            names = names[i + 1:]
-            split = names[:names.find('}')].split(',')
-        else:
-            i = names.find('(')
-            j = names.find('=')
-            if j == -1 or (i < j and i != -1):
-                split.append(names)
+            variables = text[:i]
+            i = 0
+            length = len(variables)
+            while i < length and variables[i] == ' ':
+                i += 1
+            split = []
+            if i < length and variables[i] == '{':
+                variables = variables[i + 1:]
+                split = variables[:variables.find('}')].split(',')
             else:
-                while j != -1 and names[j + 1] != '>':
-                    split.append(names[:j])
-                    names = names[j:]
-                    j = names.find(',')
-                    if j == -1:
-                        break
-                    names = names[j:]
-                    j = names.find('=')
-        for name in split:
-            while name[0] in defines:
-                name = name[1:]
-            for i in defines:
-                j = name.find(i)
-                if j != -1:
-                    name = name[:j]
-            files[file].append(name)
+                i = variables.find('(')
+                j = variables.find('=')
+                if j == -1 or (i < j and i != -1):
+                    split.append(variables)
+                else:
+                    while j != -1 and variables[j + 1] != '>':
+                        split.append(variables[:j])
+                        variables = variables[j:]
+                        j = variables.find(',')
+                        if j == -1:
+                            break
+                        variables = variables[j:]
+                        j = variables.find('=')
+            for name in split:
+                while name[0] in defines:
+                    name = name[1:]
+                for i in defines:
+                    j = name.find(i)
+                    if j != -1:
+                        name = name[:j]
+                exports[file][name] = name
         i = text.find('export ')
+    defaulted = ''
     text = texta
-    for f in files:
+    for f in exports:
         path = f[:-3]
         path = ''.join([i if i in base64 else '_' for i in path])
-        for name in files[f]:
-            text = substitute(name + '_' + path, name, text)
+        if f == file:
+            defaulted = path
+        exported = exports[f]
+        for named in exported:
+            name = exported[named]
+            if f in defaults and defaults[f] == name:
+                text = substitute(name, '_' + path, text)
+            else:
+                text = substitute(name, named + '_' + path, text)
     lines = text.split('\n')
     text = ''
     for line in lines:
         a = line.lstrip()
         if a.startswith('export default '):
-            line = a[15:]
+            line = '_' + defaulted + ' = ' + a[15:]
         elif a.startswith('export '):
             line = a[7:]
             a = line.lstrip()
@@ -192,6 +227,7 @@ def build (file, output):
                 imports = modules[file] + imports
             if file in texts:
                 imported.append(file)
+                imports.pop(0)
     text = ''
     for file in imported:
         text += texts[file]
