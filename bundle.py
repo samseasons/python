@@ -5,16 +5,19 @@ import sys
 base64 = '$0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz'
 
 def resolve (f, file):
-    if f.startswith('./'):
-        f = f[2:]
-    i = f[0]
-    if i != '.' and i != '/':
-        f = file[:file.rfind('/')] + '/' + f
-    elif f.startswith('../'):
-        while f.startswith('../'):
-            f = f[3:]
-            file = file[:file.rfind('/')]
-        f = file[:file.rfind('/')] + '/' + f
+    while f.startswith('../'):
+        f = f[3:]
+        file = file[:file.rfind('/')]
+    f = file[:file.rfind('/')] + '/' + f
+    treats = ['', '/', '', '', '/', '\\', '']
+    tricks = ['~', ':', './', '.\\', '//', '\\\\', '../']
+    for i in range(len(treats)):
+        treat = treats[i]
+        trick = tricks[i]
+        while f.find(trick) != -1:
+            f = f.replace(trick, treat)
+    while f[0] == '/':
+        f = f[1:]
     if not f.endswith('.js'):
         f += '.js'
     return f
